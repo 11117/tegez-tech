@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="hu">
+<head>
+    <meta charset="UTF-8">
+    <title>TEGEZ Ifi technikusi beosztás</title>
+    <style>
+        body { font-family: 'Segoe UI', sans-serif; background: #eceff1; margin: 0; padding: 20px; }
+        .container { max-width: 1200px; margin: auto; background: white; padding: 20px; border-radius: 12px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+        h2 { text-align: center; color: #263238; }
+        #status { text-align: center; padding: 10px; font-weight: bold; color: #0288d1; }
+        .table-wrapper { max-height: 70vh; overflow-y: auto; border: 1px solid #cfd8dc; border-radius: 8px; }
+        table { width: 100%; border-collapse: collapse; }
+        th { background: #455a64; color: white; padding: 12px; position: sticky; top: 0; z-index: 10; font-size: 13px; }
+        td { border: 1px solid #eceff1; padding: 8px; vertical-align: top; }
+        .szombat { background: #fff9c4 !important; border-left: 5px solid #fbc02d; }
+        .vasarnap { background: #fafafa; color: #c62828; }
+        .today-highlight { outline: 4px solid #ff9800; background-color: #fff3e0 !important; }
+        input { width: 90%; padding: 6px; margin-bottom: 4px; border: 1px solid #cfd8dc; border-radius: 4px; }
+        .label { font-size: 10px; color: #78909c; font-weight: bold; display: block; }
+        .auto-btn { background: #0288d1; color: white; border: none; padding: 8px; cursor: pointer; border-radius: 4px; width: 100%; font-weight: bold; margin-bottom: 5px; }
+        .save-btn { background: #43a047; color: white; border: none; padding: 10px; cursor: pointer; width: 100%; border-radius: 6px; font-weight: bold; transition: background 0.3s; }
+        .top-nav { display: flex; justify-content: flex-end; margin-bottom: 10px; }
+        .today-btn { background: #ff9800; color: white; border: none; padding: 8px 15px; border-radius: 20px; cursor: pointer; font-weight: bold; }
+		
+		/* 1. Teljes oldalkitöltés és reszponzivitás minden böngészőre */
+html, body {
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    padding: 0;
+    overflow-x: hidden; /* Megakadályozza az oldalsó görgetést mobilon */
+    -webkit-text-size-adjust: 100%; /* iOS szövegméret javítás */
+}
+
+/* 2. Táblázat optimalizálása: ne legyen szélesebb a tartalomnál */
+table {
+    width: 100% !important;
+    table-layout: auto; /* Hagyja, hogy a böngésző számolja ki az optimális szélességet */
+    border-collapse: collapse;
+}
+
+/* 3. Keskeny oszlopok kényszerítése (Dátum, Mentés, Ikonok) */
+/* Itt azokat az oszlopokat célozzuk, amiknek nem kell sok hely */
+th:has(input), td:has(input[type="submit"]), 
+th:contains("Dátum"), td:contains("-"),
+.col-save, .col-date { 
+    width: 1%;
+    white-space: nowrap; /* Ne törje meg a dátumot/gombot */
+    padding-left: 5px;
+    padding-right: 5px;
+}
+
+/* 4. Megjegyzés szövegbuborék/cella tördelése */
+/* Ez kényszeríti a hosszú szöveget, hogy ne nyújtsa meg a táblázatot */
+td.comment, .megjegyzes-cella, td:last-child {
+    white-space: normal !important; /* Engedélyezi a tördelést */
+    word-break: break-word; /* Hosszú szavaknál is törjön */
+    min-width: 150px; /* Tablet/Mobil nézeten is maradjon olvasható */
+    max-width: 0; /* Trükk: segít a table-layout auto mellett a böngészőnek a tördelésben */
+    width: auto;
+}
+
+/* 5. Mobil/Tablet specifikus finomítások */
+@media screen and (max-width: 768px) {
+    /* Ha túl sok az oszlop, vízszintes görgetés csak a táblázatnak */
+    .table-container {
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+    
+    input, select, textarea {
+        font-size: 16px !important; /* Megakadályozza az automatikus zoomot iPhone-on */
+    }
+
+    /* Gombok méretének növelése, hogy ujjal könnyebb legyen eltalálni */
+    button, .btn, input[type="submit"] {
+        padding: 8px 12px;
+        min-height: 44px;
+    }
+}
+		
+    </style>
+</head>
+<body>
+<div class="container">
+    <h2>📅 Szolgálati Beosztás</h2>
+    <div id="status">Szinkronizálás... Kérlek várj!</div>
+    <div class="top-nav"><button class="today-btn" onclick="scrollToToday()">📍 Ugrás a mai naphoz</button></div>
+    <div class="table-wrapper">
+        <table>
+            <thead><tr><th>Dátum</th><th>Hangtechnikusok</th><th>Vetítősök</th><th>Megjegyzés <br> <small>("XY: nem tudok jönni", <br> különleges alkalom, stb.)</small> </th><th> Mentés <br><small>(csak ha kétszer mented el, <br> akkor lesz végleges)</small></th></tr></thead>
+            <tbody id="tableBody"></tbody>
+        </table>
+    </div>
+</div>
+
+<script>
+    const scriptURL = 'https://script.google.com/macros/s/AKfycbyts0pt7s1ReKvRhtjAmWhcqwqjL5MNaOgObhhQRjmwxnZ1xgwjYNlNBLWusLaXLiRy/exec';
+
+    async function init() {
+        generateCalendar();
+        await loadData();
+        setTimeout(scrollToToday, 500);
+    }
+
+    function generateCalendar() {
+        const tbody = document.getElementById('tableBody');
+        const ma = new Date();
+        let html = "";
+        for (let i = 0; i < 180; i++) {
+            let d = new Date(); d.setDate(ma.getDate() + i);
+            let iso = d.toISOString().split('T')[0];
+            let nap = d.getDay();
+            let cls = (nap === 6) ? "szombat" : (nap === 0 ? "vasarnap" : "");
+            html += `<tr class="${cls}" id="row-${iso}">
+                <td><strong>${d.toLocaleDateString('hu-HU',{month:'short',day:'numeric'})}</strong><br><small>${d.toLocaleDateString('hu-HU',{weekday:'long'})}</small></td>
+                <td>${nap===6?`<button class="auto-btn" id="ah-${iso}" onclick="autoFill('${iso}','hang')">✨ Auto</button>`:''}
+                    <span class="label">Fő:</span><input id="h1-${iso}"><span class="label">Tartalékos:</span><input id="h2-${iso}"></td>
+                <td>${nap===6?`<button class="auto-btn" id="av-${iso}" onclick="autoFill('${iso}','vetito')">✨ Auto</button>`:''}
+                    <span class="label">Fő:</span><input id="v1-${iso}"><span class="label">Tartalékos:</span><input id="v2-${iso}"></td>
+                <td><input id="m-${iso}" placeholder="Megjegyzés..."></td>
+                <td><button class="save-btn" id="s-${iso}" onclick="saveRow('${iso}')">Mentés</button></td></tr>`;
+        }
+        tbody.innerHTML = html;
+    }
+
+    async function loadData() {
+        try {
+            const res = await fetch(scriptURL);
+            const data = await res.json();
+            data.forEach((row, idx) => {
+                if (idx === 0) return;
+                let d = row[0];
+                if(document.getElementById(`h1-${d}`)) {
+                    document.getElementById(`h1-${d}`).value = row[1]||""; document.getElementById(`h2-${d}`).value = row[2]||"";
+                    document.getElementById(`v1-${d}`).value = row[3]||""; document.getElementById(`v2-${d}`).value = row[4]||"";
+                    document.getElementById(`m-${d}`).value = row[5]||"";
+                }
+            });
+            document.getElementById('status').innerText = "✅ Adatok betöltve.";
+        } catch(e) { document.getElementById('status').innerText = "⚠️ Hiba a betöltésnél."; }
+    }
+
+    async function autoFill(iso, tipus) {
+        const btn = document.getElementById(tipus === 'hang' ? `ah-${iso}` : `av-${iso}`);
+        btn.innerText = "⏳..."; btn.disabled = true;
+        try {
+            const res = await fetch(scriptURL + "?action=getAutoBeosztas");
+            const data = await res.json();
+            let lista = (tipus === 'hang') ? (data.hangLista || []) : (data.vetitoLista || []);
+            let busy = [document.getElementById(`h1-${iso}`).value, document.getElementById(`h2-${iso}`).value, 
+                        document.getElementById(`v1-${iso}`).value, document.getElementById(`v2-${iso}`).value].filter(n => n);
+            
+            let talalt = [];
+            for (let n of lista) { if(!busy.includes(n)) talalt.push(n); if(talalt.length === 2) break; }
+
+            if(tipus === 'hang') {
+                document.getElementById(`h1-${iso}`).value = talalt[0] || "";
+                document.getElementById(`h2-${iso}`).value = talalt[1] || "";
+            } else {
+                document.getElementById(`v1-${iso}`).value = talalt[0] || "";
+                document.getElementById(`v2-${iso}`).value = talalt[1] || "";
+            }
+        } catch(e) { alert("Hiba!"); }
+        btn.innerText = "✨ Auto"; btn.disabled = false;
+    }
+
+    async function saveRow(iso) {
+        const h1v = document.getElementById(`h1-${iso}`).value.trim();
+        const h2v = document.getElementById(`h2-${iso}`).value.trim();
+        const v1v = document.getElementById(`v1-${iso}`).value.trim();
+        const v2v = document.getElementById(`v2-${iso}`).value.trim();
+        const n = [h1v, h2v, v1v, v2v].filter(x => x!=="");
+        
+        if(new Set(n).size !== n.length) { alert("❌ Hiba: Egy név csak egyszer szerepelhet!"); return; }
+        
+        const btn = document.getElementById(`s-${iso}`);
+        btn.innerText = "⏳ Mentés...";
+        btn.disabled = true;
+        btn.style.background = "#90a4ae"; // Szürkére vált mentéskor
+
+        const payload = { datum: iso, h1: h1v, h2: h2v, v1: v1v, v2: v2v, m: document.getElementById(`m-${iso}`).value };
+        
+        try {
+            await fetch(scriptURL, { method: 'POST', mode: 'no-cors', body: JSON.stringify(payload) });
+            btn.innerText = "✅ KÉSZ - Mentsd mégegyszer!";
+            btn.style.background = "#43a047";
+            setTimeout(() => { btn.innerText = "Mentés"; btn.disabled = false; }, 2500);
+        } catch(e) { 
+            alert("Hiba!"); 
+            btn.innerText = "Mentés"; 
+            btn.disabled = false; 
+            btn.style.background = "#43a047";
+        }
+    }
+
+    function scrollToToday() {
+        const d = new Date().toISOString().split('T')[0];
+        const r = document.getElementById(`row-${d}`);
+        if(r) { r.classList.add('today-highlight'); r.scrollIntoView({ behavior: 'smooth', block: 'center' }); }
+    }
+    window.onload = init;
+</script>
+</body>
+</html>
